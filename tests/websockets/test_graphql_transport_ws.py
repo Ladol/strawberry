@@ -1216,3 +1216,69 @@ async def test_unexpected_client_disconnects_are_gracefully_handled(
 
         assert not process_errors.called
         assert Subscription.active_infinity_subscriptions == 0
+
+
+@patch.object(MyExtension, "_process_result", create=True)
+async def test_subscription_errors_trigger_extension_process_result(
+    mock: Mock, ws: WebSocketClient
+):
+    """Test that schema extensions are called to process results when a subscription yields an error."""
+    await ws.send_message(
+        {
+            "id": "sub1",
+            "type": "subscribe",
+            "payload": {
+                "query": 'subscription { exception(message: "TEST EXC") }',
+            },
+        }
+    )
+
+    next_message: NextMessage = await ws.receive_json()
+
+    assert next_message["type"] == "next"
+    assert next_message["id"] == "sub1"
+    assert "errors" in next_message["payload"]
+
+    # Error intercepted and extension called
+    mock.assert_called_once()
+
+
+async def test_subscription_error_masking_end_to_end(
+    http_client_class: type[HttpClient],
+):
+    """Test that the real MaskErrors extension successfully masks the payload text."""
+    import strawberry
+    from strawberry.extensions import MaskErrors
+    from tests.views.schema import Query, Subscription
+
+    # Create a custom schema with the real MaskErrors extension attached
+    custom_schema = strawberry.Schema(
+        query=Query,
+        subscription=Subscription,
+        extensions=[MaskErrors(error_message="Unexpected error.")],
+    )
+    test_client = http_client_class(custom_schema)
+
+    async with test_client.ws_connect(
+        "/graphql", protocols=[GRAPHQL_TRANSPORT_WS_PROTOCOL]
+    ) as ws:
+        await ws.send_message({"type": "connection_init"})
+        await ws.receive_json()
+
+        await ws.send_message(
+            {
+                "id": "sub1",
+                "type": "subscribe",
+                "payload": {
+                    "query": 'subscription { exception(message: "Super secret database error") }',
+                },
+            }
+        )
+
+        next_message: NextMessage = await ws.receive_json()
+
+        assert next_message["type"] == "next"
+        assert next_message["id"] == "sub1"
+        assert "errors" in next_message["payload"]
+
+        assert next_message["payload"]["errors"][0]["message"] == "Unexpected error."

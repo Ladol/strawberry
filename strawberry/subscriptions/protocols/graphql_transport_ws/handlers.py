@@ -29,6 +29,7 @@ from strawberry.subscriptions.protocols.graphql_transport_ws.types import (
     PongMessage,
     SubscribeMessage,
 )
+from strawberry.subscriptions.utils import process_extensions
 from strawberry.types import ExecutionResult
 from strawberry.types.execution import PreExecutionError
 from strawberry.types.graphql import OperationType
@@ -394,6 +395,9 @@ class Operation(Generic[Context, RootValue]):
         )
 
     async def send_next(self, execution_result: ExecutionResult) -> None:
+        extensions = getattr(self.handler.schema, "extensions", [])
+        process_extensions(execution_result, extensions)
+
         next_payload: NextMessagePayload = {"data": execution_result.data}
 
         if execution_result.errors:

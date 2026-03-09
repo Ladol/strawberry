@@ -24,6 +24,7 @@ from strawberry.subscriptions.protocols.graphql_ws.types import (
     StartMessage,
     StopMessage,
 )
+from strawberry.subscriptions.utils import process_extensions
 from strawberry.types.execution import ExecutionResult, PreExecutionError
 from strawberry.types.unset import UnsetType
 
@@ -216,6 +217,9 @@ class BaseGraphQLWSHandler(Generic[Context, RootValue]):
     async def send_data_message(
         self, execution_result: ExecutionResult, operation_id: str
     ) -> None:
+        extensions = getattr(self.schema, "extensions", [])
+        process_extensions(execution_result, extensions)
+
         data_message: DataMessage = {
             "type": "data",
             "id": operation_id,
