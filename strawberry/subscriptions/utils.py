@@ -8,9 +8,18 @@ def process_extensions(
 ) -> None:
     """Run the execution result through active schema extensions."""
     for ext in extensions:
-        extension_instance = (
-            ext(execution_context=None) if isinstance(ext, type) else ext
-        )
+        if isinstance(ext, type):
+            try:
+                # Try passing the context for extensions like ApolloTracing
+                extension_instance = ext(execution_context=None)
+            except TypeError:
+                # Fallback for extensions like MaskErrors that don't want it
+                extension_instance = ext()
+
+            # Explicitly set this ONLY for newly constructed instances
+            extension_instance.execution_context = None
+        else:
+            extension_instance = ext
 
         if hasattr(extension_instance, "_process_result"):
             extension_instance._process_result(execution_result)

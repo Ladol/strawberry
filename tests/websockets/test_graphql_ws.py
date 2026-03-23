@@ -939,3 +939,54 @@ async def test_subscription_error_masking_end_to_end(
         # Clean up the socket
         await ws.send_legacy_message({"type": "stop", "id": "demo"})
         await ws.receive_json()
+
+
+async def test_subscription_masking_with_class_extension(
+    http_client_class: type[HttpClient],
+):
+    """Test that passing an extension as a class (not instance) successfully masks the legacy payload text."""
+    import strawberry
+    from strawberry.extensions import SchemaExtension
+    from tests.views.schema import Query, Subscription
+
+    class CustomClassExtension(SchemaExtension):
+        def __init__(self, execution_context=None):
+            self.execution_context = execution_context  # type: ignore
+
+        def _process_result(self, execution_result):
+            if execution_result.errors:
+                execution_result.errors[0].message = "Unexpected error."
+
+    # Create a custom schema passing the CLASS, not an instance
+    custom_schema = strawberry.Schema(
+        query=Query, subscription=Subscription, extensions=[CustomClassExtension]
+    )
+    test_client = http_client_class(custom_schema)
+
+    async with test_client.ws_connect(
+        "/graphql", protocols=[GRAPHQL_WS_PROTOCOL]
+    ) as ws:
+        await ws.send_legacy_message({"type": "connection_init"})
+        await ws.receive_json()
+
+        await ws.send_legacy_message(
+            {
+                "type": "start",
+                "id": "sub_class",
+                "payload": {
+                    "query": 'subscription { exception(message: "Secret database error") }',
+                },
+            }
+        )
+
+        data_message: DataMessage = await ws.receive_json()
+
+        assert data_message["type"] == "data"
+        assert data_message["id"] == "sub_class"
+        assert "errors" in data_message["payload"]
+
+        assert data_message["payload"]["errors"][0]["message"] == "Unexpected error."
+
+        # Clean up the socket
+        await ws.send_legacy_message({"type": "stop", "id": "sub_class"})
+        await ws.receive_json()
