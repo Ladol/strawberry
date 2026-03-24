@@ -1,26 +1,29 @@
 import inspect
 from typing import Any
 
-from strawberry.types import ExecutionResult
 
+def build_operation_extensions(extensions: list[Any]) -> list[Any]:
+    """Build a fresh, isolated set of extensions for a single operation.
 
-def process_extensions(
-    execution_result: ExecutionResult, extensions: list[Any]
-) -> None:
-    """Run the execution result through active schema extensions."""
+    Only extensions that are either pre-constructed instances or
+    zero-argument classes (optionally accepting execution_context) are
+    fully supported. Class-based extensions requiring custom constructor
+    arguments should be passed as pre-constructed instances.
+
+    Full extension lifecycle support (on_operation, on_execute, etc.)
+    for subscriptions should be tracked as a separate issue.
+    """
+    instances = []
     for ext in extensions:
         if isinstance(ext, type):
-            # Inspect the constructor to see if it requires execution_context
             sig = inspect.signature(ext.__init__)
             if "execution_context" in sig.parameters:
                 extension_instance = ext(execution_context=None)
             else:
                 extension_instance = ext()
 
-            # Explicitly set this ONLY for newly constructed instances
             extension_instance.execution_context = None
+            instances.append(extension_instance)
         else:
-            extension_instance = ext
-
-        if hasattr(extension_instance, "_process_result"):
-            extension_instance._process_result(execution_result)
+            instances.append(ext)
+    return instances

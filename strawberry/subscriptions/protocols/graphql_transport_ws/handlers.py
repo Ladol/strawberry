@@ -29,7 +29,7 @@ from strawberry.subscriptions.protocols.graphql_transport_ws.types import (
     PongMessage,
     SubscribeMessage,
 )
-from strawberry.subscriptions.utils import process_extensions
+from strawberry.subscriptions.utils import build_operation_extensions
 from strawberry.types import ExecutionResult
 from strawberry.types.execution import PreExecutionError
 from strawberry.types.graphql import OperationType
@@ -348,6 +348,7 @@ class Operation(Generic[Context, RootValue]):
         "completed",
         "handler",
         "id",
+        "operation_extensions",
         "operation_name",
         "operation_type",
         "query",
@@ -372,6 +373,8 @@ class Operation(Generic[Context, RootValue]):
         self.operation_name = operation_name
         self.completed = False
         self.task: asyncio.Task | None = None
+        schema_extensions = getattr(self.handler.schema, "extensions", [])
+        self.operation_extensions = build_operation_extensions(schema_extensions)
 
     async def send_operation_message(self, message: Message) -> None:
         if self.completed:
@@ -395,8 +398,9 @@ class Operation(Generic[Context, RootValue]):
         )
 
     async def send_next(self, execution_result: ExecutionResult) -> None:
-        extensions = getattr(self.handler.schema, "extensions", [])
-        process_extensions(execution_result, extensions)
+        for ext in self.operation_extensions:
+            if hasattr(ext, "_process_result"):
+                ext._process_result(execution_result)
 
         next_payload: NextMessagePayload = {"data": execution_result.data}
 

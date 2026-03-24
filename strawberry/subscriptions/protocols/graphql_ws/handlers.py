@@ -24,7 +24,7 @@ from strawberry.subscriptions.protocols.graphql_ws.types import (
     StartMessage,
     StopMessage,
 )
-from strawberry.subscriptions.utils import process_extensions
+from strawberry.subscriptions.utils import build_operation_extensions
 from strawberry.types.execution import ExecutionResult, PreExecutionError
 from strawberry.types.unset import UnsetType
 
@@ -56,6 +56,7 @@ class BaseGraphQLWSHandler(Generic[Context, RootValue]):
         self.keep_alive_task: asyncio.Task | None = None
         self.subscriptions: dict[str, AsyncGenerator] = {}
         self.tasks: dict[str, asyncio.Task] = {}
+        self.operation_extensions: dict[str, list[Any]] = {}
 
     async def handle(self) -> None:
         try:
@@ -140,6 +141,10 @@ class BaseGraphQLWSHandler(Generic[Context, RootValue]):
             operation_id, query, operation_name, variables
         )
         self.tasks[operation_id] = asyncio.create_task(result_handler)
+        schema_extensions = getattr(self.schema, "extensions", [])
+        self.operation_extensions[operation_id] = build_operation_extensions(
+            schema_extensions
+        )
 
     async def handle_stop(self, message: StopMessage) -> None:
         operation_id = message["id"]
@@ -210,6 +215,8 @@ class BaseGraphQLWSHandler(Generic[Context, RootValue]):
             await self.tasks[operation_id]
         del self.tasks[operation_id]
 
+        self.operation_extensions.pop(operation_id, None)
+
     async def cleanup(self) -> None:
         for operation_id in list(self.tasks.keys()):
             await self.cleanup_operation(operation_id)
@@ -217,8 +224,9 @@ class BaseGraphQLWSHandler(Generic[Context, RootValue]):
     async def send_data_message(
         self, execution_result: ExecutionResult, operation_id: str
     ) -> None:
-        extensions = getattr(self.schema, "extensions", [])
-        process_extensions(execution_result, extensions)
+        for ext in self.operation_extensions.get(operation_id, []):
+            if hasattr(ext, "_process_result"):
+                ext._process_result(execution_result)
 
         data_message: DataMessage = {
             "type": "data",
