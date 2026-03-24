@@ -1,3 +1,4 @@
+import inspect
 from typing import Any
 
 from strawberry.types import ExecutionResult
@@ -9,11 +10,11 @@ def process_extensions(
     """Run the execution result through active schema extensions."""
     for ext in extensions:
         if isinstance(ext, type):
-            try:
-                # Try passing the context for extensions like ApolloTracing
+            # Inspect the constructor to see if it requires execution_context
+            sig = inspect.signature(ext.__init__)
+            if "execution_context" in sig.parameters:
                 extension_instance = ext(execution_context=None)
-            except TypeError:
-                # Fallback for extensions like MaskErrors that don't want it
+            else:
                 extension_instance = ext()
 
             # Explicitly set this ONLY for newly constructed instances
