@@ -907,11 +907,13 @@ class Schema(BaseSchema):
                 origin_result = OriginalExecutionResult(
                     data=None, errors=[_coerce_error(exc)]
                 )
-                yield await self._handle_execution_result(
+                execution_result = await self._handle_execution_result(
                     execution_context,
                     origin_result,
                     extensions_runner,
                 )
+                await extensions_runner.on_subscription_result(execution_result)
+                yield execution_result
 
     async def subscribe(
         self,
