@@ -838,6 +838,7 @@ class Schema(BaseSchema):
                 )
                 async with extensions_runner.on_subscription_result(execution_result):
                     yield execution_result
+                return  # do not fall through to subscribe() after a pre-execution error
             try:
                 async with extensions_runner.executing():
                     assert execution_context.graphql_document is not None
